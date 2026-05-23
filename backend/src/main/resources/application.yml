@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/os?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: lxy02126885
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.example.oslab.entity
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+
+oj:
+  workspace-path: D:/Desktop/test
+  source-file: os/src/main.rs
+  docker-image: ucore-riscv:latest
+
+code-editor:
+  base-path: D:/Desktop/test/code_editor
+  template-path: D:/Desktop/test/hollow/hollow
+  user-folder-prefix: user_

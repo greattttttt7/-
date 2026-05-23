@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.oslab.mapper.SubmissionMapper">
+    <resultMap id="SubmissionMap" type="com.example.oslab.entity.Submission">
+        <id column="sub_id" property="subId" />
+        <result column="user_id" property="userId" />
+        <result column="lab_id" property="labId" />
+        <result column="code_content" property="codeContent" />
+        <result column="commit_hash" property="commitHash" />
+        <result column="run_result" property="runResult" />
+        <result column="run_time" property="runTime" />
+        <result column="pass_count" property="passCount" />
+        <result column="fail_count" property="failCount" />
+        <result column="total_count" property="totalCount" />
+        <result column="result_detail" property="resultDetail" />
+        <result column="submit_time" property="submitTime" />
+    </resultMap>
+
+    <insert id="insert" parameterType="com.example.oslab.entity.Submission" useGeneratedKeys="true" keyProperty="subId">
+        insert into submission (
+            user_id, lab_id, code_content, commit_hash, run_result, run_time,
+            pass_count, fail_count, total_count, result_detail, submit_time
+        ) values (
+            #{userId}, #{labId}, #{codeContent}, #{commitHash}, #{runResult}, #{runTime},
+            #{passCount}, #{failCount}, #{totalCount}, #{resultDetail}, #{submitTime}
+        )
+    </insert>
+
+    <update id="updateResult" parameterType="com.example.oslab.entity.Submission">
+        update submission
+        set code_content = #{codeContent},
+            commit_hash = #{commitHash},
+            run_result = #{runResult},
+            run_time = #{runTime},
+            pass_count = #{passCount},
+            fail_count = #{failCount},
+            total_count = #{totalCount},
+            result_detail = #{resultDetail}
+        where sub_id = #{subId}
+    </update>
+
+    <select id="selectByUserIdAndLabId" resultMap="SubmissionMap">
+        select * from submission where user_id = #{userId} and lab_id = #{labId} order by submit_time desc
+    </select>
+</mapper>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.oslab.mapper.DocumentMapper">
+    <resultMap id="DocumentMap" type="com.example.oslab.entity.Document">
+        <id column="doc_id" property="docId" />
+        <result column="lab_id" property="labId" />
+        <result column="doc_title" property="docTitle" />
+        <result column="doc_content" property="docContent" />
+        <result column="doc_path" property="docPath" />
+        <result column="doc_task" property="docTask" />
+        <result column="doc_principle" property="docPrinciple" />
+        <result column="doc_target" property="docTarget" />
+    </resultMap>
+
+    <select id="selectByLabId" resultMap="DocumentMap">
+        select * from document where lab_id = #{labId} limit 1
+    </select>
+</mapper>

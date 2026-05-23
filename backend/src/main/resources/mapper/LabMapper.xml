@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.oslab.mapper.LabMapper">
+    <resultMap id="LabMap" type="com.example.oslab.entity.Lab">
+        <id column="lab_id" property="labId" />
+        <result column="lab_code" property="labCode" />
+        <result column="lab_name" property="labName" />
+        <result column="lab_desc" property="labDesc" />
+        <result column="difficulty" property="difficulty" />
+        <result column="estimated_time" property="estimatedTime" />
+        <result column="category" property="category" />
+        <result column="create_time" property="createTime" />
+    </resultMap>
+
+    <select id="selectAll" resultMap="LabMap">
+        select * from lab order by lab_id
+    </select>
+
+    <select id="selectById" resultMap="LabMap">
+        select * from lab where lab_id = #{labId}
+    </select>
+</mapper>

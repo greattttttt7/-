@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+body {
+  background: #f8fafc;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+.progress-ring__circle {
+  transition: stroke-dashoffset 0.35s;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+.editor-root .cm-editor {
+  height: 100%;
+  background: #fff;
+}
+
+.editor-root .cm-scroller {
+  font-family: 'Fira Code', 'Courier New', monospace;
+}
+
+.editor-root .cm-content,
+.editor-root .cm-gutters {
+  min-height: 100%;
+}
+
+.editor-root .cm-gutters {
+  border-right: 1px solid #eef2f6;
+  background: #f9fafb;
+  color: #b0b7c3;
+}
+
+.editor-root .cm-activeLineGutter {
+  background: transparent;
+}
+
+.editor-root .cm-focused {
+  outline: none;
+}

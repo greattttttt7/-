@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.oslab.mapper.LabProgressMapper">
+    <resultMap id="ProgressMap" type="com.example.oslab.entity.LabProgress">
+        <id column="progress_id" property="progressId" />
+        <result column="user_id" property="userId" />
+        <result column="lab_id" property="labId" />
+        <result column="status" property="status" />
+        <result column="score" property="score" />
+        <result column="update_time" property="updateTime" />
+    </resultMap>
+
+    <select id="selectByUserId" resultMap="ProgressMap">
+        select * from lab_progress where user_id = #{userId} order by lab_id
+    </select>
+
+    <select id="selectByUserIdAndLabId" resultMap="ProgressMap">
+        select * from lab_progress where user_id = #{userId} and lab_id = #{labId} limit 1
+    </select>
+
+    <insert id="upsert" parameterType="com.example.oslab.entity.LabProgress" useGeneratedKeys="true" keyProperty="progressId">
+        insert into lab_progress (user_id, lab_id, status, score, update_time)
+        values (#{userId}, #{labId}, #{status}, #{score}, now())
+        on duplicate key update
+        status = values(status),
+        score = values(score),
+        update_time = now()
+    </insert>
+</mapper>
