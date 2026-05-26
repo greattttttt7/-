@@ -29,3 +29,7 @@ export function runSubmission(payload) {
 export function getSubmissions(userId, labId) {
   return request(`/submissions?userId=${userId}&labId=${labId}`)
 }
+
+export function getAnswerFile(labId, fileName) {
+  return request(`/tasks/answer-file?labId=${labId}&fileName=${encodeURIComponent(fileName)}`)
+}

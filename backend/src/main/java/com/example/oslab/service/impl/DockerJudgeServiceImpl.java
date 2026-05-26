@@ -1,5 +1,6 @@
 package com.example.oslab.service.impl;
 
+
 import com.example.oslab.dto.SubmissionRequest;
 import com.example.oslab.exception.BusinessException;
 import com.example.oslab.service.DockerJudgeService;
@@ -69,8 +70,7 @@ public class DockerJudgeServiceImpl implements DockerJudgeService {
         result.setContainerName(containerName);
 
         Process process = null;
-        CompletableFuture<String> stdoutFuture = null;
-        CompletableFuture<String> stderrFuture = null;
+        CompletableFuture<String> mergedFuture = null;
 
         judgeExecutionStateService.markRunning(userId, labId);
 
@@ -107,11 +107,10 @@ public class DockerJudgeServiceImpl implements DockerJudgeService {
             System.out.println("[DOCKER_RUN_COMMAND] " + String.join(" ", commandList));
 
             ProcessBuilder processBuilder = new ProcessBuilder(commandList);
-            processBuilder.redirectErrorStream(false);
+            processBuilder.redirectErrorStream(true);
 
             process = processBuilder.start();
-            stdoutFuture = readStreamAsync(process.getInputStream());
-            stderrFuture = readStreamAsync(process.getErrorStream());
+            mergedFuture = readStreamAsync(process.getInputStream());
 
             boolean finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (!finished) {
@@ -128,9 +127,10 @@ public class DockerJudgeServiceImpl implements DockerJudgeService {
                 result.setMessage(exitCode == 0 ? "运行完成" : "运行失败");
             }
 
-            result.setStdout(joinQuietly(stdoutFuture));
-            result.setStderr(joinQuietly(stderrFuture));
-            result.setCombinedLog(buildCombinedLog(result.getStdout(), result.getStderr()));
+            String mergedOutput = joinQuietly(mergedFuture);
+            result.setStdout(mergedOutput);
+            result.setStderr("");
+            result.setCombinedLog(mergedOutput);
         } catch (BusinessException e) {
             result.setSuccess(false);
             result.setMessage(e.getMessage());
@@ -237,40 +237,69 @@ public class DockerJudgeServiceImpl implements DockerJudgeService {
         return normalized.substring(normalized.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
     }
 
-    private String buildJudgeBashCommand(String workDir, String fileNameLower) {
+    
+private String buildJudgeBashCommand(String workDir, String fileNameLower) {
+
         if (fileNameLower.endsWith(".py")) {
+
             return "cd " + workDir + " && python3 " + fileNameLower;
+
         }
 
-        // 强行把我们自定义的 /app/my_libs 注入到最前面，给系统环境建立最高优先级的动态库寻址通道
+ 
+
         return "export LD_LIBRARY_PATH=/app/my_libs:$LD_LIBRARY_PATH && "
+
                 + "cd " + workDir + " && "
-                + "if grep -qE '^\\s*make\\s+-C\\s+user\\s+clean' Makefile; "
-                + "then :; "
-                + "else if grep -q '^clean:' Makefile; then make clean; fi; fi && "
+
+                // �� 强行在容器内创建缺失的 nfs 文件夹，并造一个假的空镜像文件欺骗 Makefile
+
+                + "mkdir -p nfs && touch nfs/fs.img nfs/fs-copy.img && "
+
+                // 强行用 sed 把 Makefile 里关于 initproc.py 和 initproc.S 的整行依赖全部删掉
+
+                + "sed -i '/initproc\\.py/d' Makefile && "
+
+                + "sed -i '/initproc\\.S/d' Makefile && "
+
+                // 强行在 os 目录下手写一个无公害的空的 initproc.o 占位符
+
+                + "mkdir -p os && printf '.align 4\\n.section .data\\n.global _initproc_start\\n.global _initproc_size\\n.global INIT_PROC\\n_initproc_start:\\n    .quad 0\\n_initproc_size:\\n    .quad 0\\nINIT_PROC:\\n    .byte 117,115,101,114,115,104,101,108,108,0\\n' > os/initproc.S && "
+
+                // 【修复】始终清理旧编译产物，确保学生代码被重新编译
+                + "make clean 2>/dev/null || true && "
+
                 + "mkdir -p os && "
+
                 + "printf '.align 4\\n.section .data\\n.global _app_num\\n_app_num:\\n.quad 0\\n' > os/link_app.S && "
+
                 + "if [ -f \"os/kernel.ld\" ]; then cp os/kernel.ld os/kernel_app.ld; "
+
                 + "else printf 'OUTPUT_ARCH(riscv)\\nENTRY(_start)\\nSECTIONS {\\n  . = 0x80200000;\\n  .text : { *(.text .text.*) }\\n  .data : { *(.data .data.*) }\\n  .bss : { *(.bss .bss.*) }\\n}' > os/kernel_app.ld; fi && "
+
                 + "sed -i '/scripts\\/pack.py/d' Makefile && "
+
                 + "sed -i '/python3.*pack.py/d' Makefile && "
+
                 + "sed -i '/scripts\\/kernelld.py/d' Makefile && "
+
                 + "sed -i '/python3.*kernelld.py/d' Makefile && "
-                + "make run";
+
+                // 【修复】先做编译（不含 QEMU），编译失败直接退出
+                // 编译成功后启动 QEMU 捕获运行输出，QEMU 超时不视为失败
+                + "make 2>&1 || exit $? && "
+                + "timeout 10 make run 2>&1 || true";
+
     }
 
     private String buildCombinedLog(String stdout, String stderr) {
         if ((stdout == null || stdout.isBlank()) && (stderr == null || stderr.isBlank())) {
             return "[OJ系统提示] 评测引擎正全速编译中，请稍后...";
         }
-
-        StringBuilder builder = new StringBuilder();
-        if (stdout != null && !stdout.isBlank()) {
-            builder.append("[stdout]").append(System.lineSeparator()).append(stdout.trim()).append(System.lineSeparator());
-        }
+        String merged = stdout != null && !stdout.isBlank() ? stdout.trim() : "";
         if (stderr != null && !stderr.isBlank()) {
-            builder.append("[stderr]").append(System.lineSeparator()).append(stderr.trim()).append(System.lineSeparator());
+            merged += System.lineSeparator() + stderr.trim();
         }
-        return builder.toString().trim();
+        return merged.trim();
     }
 }

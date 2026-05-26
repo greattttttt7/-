@@ -34,4 +34,9 @@ public class TaskController {
     public Result<String> answer(@PathVariable Integer taskId) {
         return Result.success(submissionService.loadTaskAnswer(taskId));
     }
+
+    @GetMapping("/answer-file")
+    public Result<String> answerFile(@RequestParam Integer labId, @RequestParam String fileName) {
+        return Result.success(submissionService.loadAnswerFile(labId, fileName));
+    }
 }

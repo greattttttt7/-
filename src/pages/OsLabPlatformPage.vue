@@ -67,7 +67,7 @@ const dashboardHistoryItemsView = computed(() => {
     name: `Lab${item.labId} 提交记录`,
     time: formatTime(item.submitTime),
     status: item.runResult,
-    tone: item.runResult === 'SUCCESS' ? 'success' : 'danger',
+    tone: item.runResult === 'Pass' ? 'success' : 'danger',
   }))
 })
 

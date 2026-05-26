@@ -1,13 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { basicSetup, EditorView } from 'codemirror'
 import { python } from '@codemirror/lang-python'
 import AppHeader from '../components/layout/AppHeader.vue'
 import { editorFinalLine, guideHeaderNavItems, labGuides } from '../data/labs'
 import { getLabDetail } from '../api/labs'
 import { getCurrentUserId } from '../config/session'
-import { getSubmissions, getTask, getTaskAnswer, getTaskSource, runSubmission, saveSubmission } from '../api/submissions'
+import { getSubmissions, getTask, getTaskAnswer, getTaskSource, runSubmission, saveSubmission, getAnswerFile } from '../api/submissions'
 import { saveProgress } from '../api/progress'
 
 const route = useRoute()
@@ -15,7 +15,9 @@ const router = useRouter()
 const editorRoot = ref(null)
 const editorView = ref(null)
 const code = ref('')
-const outputLines = ref([])
+const compileLog = ref([])
+const runResult = ref([])
+const showCompileLog = ref(true)
 const loading = ref(false)
 const saving = ref(false)
 const running = ref(false)
@@ -24,8 +26,57 @@ const currentTask = ref(null)
 const taskList = ref([])
 const currentSubmission = ref(null)
 const copied = ref(false)
+const ignoreRouteChanges = ref(false)
+const lockLogUpdate = ref(false)
+const compileLogFinalized = ref(false)
+const runResultFinalized = ref(false)
+const answerEnabled = ref(false)
+const answerCode = ref('')
+const showAnswer = ref(false)
 let mounted = false
 let copiedTimer = null
+
+function setCompileLog(value) {
+  if (compileLogFinalized.value) {
+    console.warn('compileLog has been finalized, cannot modify')
+    return
+  }
+  compileLog.value = value
+}
+
+function appendCompileLog(line) {
+  if (compileLogFinalized.value) {
+    console.warn('compileLog has been finalized, cannot append')
+    return
+  }
+  compileLog.value.push(line)
+}
+
+function setRunResult(value) {
+  if (runResultFinalized.value) {
+    console.warn('runResult has been finalized, cannot modify')
+    return
+  }
+  runResult.value = value
+}
+
+function appendRunResult(line) {
+  if (runResultFinalized.value) {
+    console.warn('runResult has been finalized, cannot append')
+    return
+  }
+  runResult.value.push(line)
+}
+
+function finalizeLogs() {
+  compileLogFinalized.value = true
+  runResultFinalized.value = true
+}
+
+function resetLogFinalized() {
+  compileLogFinalized.value = false
+  runResultFinalized.value = false
+}
 
 const labId = computed(() => Number(String(route.params.labId || 'lab1').replace(/^lab/i, '')) || 1)
 const routeTaskId = computed(() => Number(route.query.taskId || 0) || 0)
@@ -100,12 +151,14 @@ function applyEditorTask(task, source) {
 }
 
 function applySubmission(submission) {
+  if (running.value || lockLogUpdate.value) {
+    return
+  }
   currentSubmission.value = submission || null
-  outputLines.value = [
+  setRunResult([
     submission?.resultDetail || '最近一次提交已从后端加载。',
     submission?.submitTime ? `提交时间：${formatTime(submission.submitTime)}` : '',
-    editorFinalLine,
-  ].filter(Boolean)
+  ].filter(Boolean))
 }
 
 function getFallbackTaskId(preferredTaskId = 0) {
@@ -118,6 +171,15 @@ function getFallbackTaskId(preferredTaskId = 0) {
 }
 
 async function loadTaskContext(nextTaskId = null) {
+  if (running.value || lockLogUpdate.value) {
+    return
+  }
+
+  // 如果 judge 结果已定型（finalizeLogs 已调用），阻止 loadTaskContext
+  // 覆盖当前显示的评测输出。调用方（previousTask/nextTask）会先 resetLogFinalized
+  if (compileLogFinalized.value || runResultFinalized.value) {
+    return
+  }
   const userId = getCurrentUserId()
   if (!userId) {
     router.push('/login')
@@ -172,16 +234,19 @@ async function loadTaskContext(nextTaskId = null) {
 
     if (latestSubmission) {
       applySubmission(latestSubmission)
-    } else {
-      outputLines.value = ['请先编写代码，再点击运行或查看答案。']
+    } else if (!running.value && !lockLogUpdate.value) {
+      setRunResult(['请先编写代码，再点击运行或查看答案。'])
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '加载任务失败'
-    currentTask.value = null
-    code.value = ''
-    outputLines.value = []
-    editorView.value?.destroy()
-    editorView.value = null
+    if (!running.value && !lockLogUpdate.value) {
+      errorMessage.value = error instanceof Error ? error.message : '加载任务失败'
+      currentTask.value = null
+      code.value = ''
+      setCompileLog([])
+      setRunResult([])
+      editorView.value?.destroy()
+      editorView.value = null
+    }
   } finally {
     loading.value = false
   }
@@ -189,12 +254,14 @@ async function loadTaskContext(nextTaskId = null) {
 
 function previousTask() {
   if (!taskList.value.length || taskIndex.value < 0) return
+  resetLogFinalized()
   const index = taskIndex.value <= 0 ? taskList.value.length - 1 : taskIndex.value - 1
   void loadTaskContext(taskList.value[index].taskId)
 }
 
 function nextTask() {
   if (!taskList.value.length || taskIndex.value < 0) return
+  resetLogFinalized()
   const index = taskIndex.value >= taskList.value.length - 1 ? 0 : taskIndex.value + 1
   void loadTaskContext(taskList.value[index].taskId)
 }
@@ -206,11 +273,27 @@ async function handleRun() {
   }
 
   running.value = true
+  ignoreRouteChanges.value = true
+  lockLogUpdate.value = true
   errorMessage.value = ''
+  
+  resetLogFinalized()
+  
+  const compileLogBuffer = []
+  const runResultBuffer = []
+
+  compileLogBuffer.push(`=== 正在提交代码到评测系统 ===`)
+  compileLogBuffer.push(`用户ID: ${userId}`)
+  compileLogBuffer.push(`实验ID: lab${labId.value}`)
+  compileLogBuffer.push(`任务ID: ${currentTask.value.taskId}`)
+  compileLogBuffer.push(`文件名: ${taskFileName.value}`)
+  compileLogBuffer.push('')
+  compileLogBuffer.push(`正在编译代码...`)
+
+  compileLog.value = [...compileLogBuffer]
+  runResult.value = []
 
   try {
-    outputLines.value = ['正在提交代码到评测系统...', '']
-
     const judgeResult = await runSubmission({
       userId,
       labId: labId.value,
@@ -219,67 +302,139 @@ async function handleRun() {
       codeContent: code.value,
     })
 
-    const output = []
+    if (judgeResult?.combinedLog) {
+      const logs = judgeResult.combinedLog.split(/\r?\n/)
+      let inBuildPhase = true
 
-    output.push(`=== 评测结果 ===`)
-    output.push(`状态: ${judgeResult?.success ? '✓ 通过' : '✗ 失败'}`)
+      for (const line of logs) {
+        const trimmedLine = line.trim()
+        
+        if (!trimmedLine) {
+          continue
+        }
 
+        if (trimmedLine.startsWith('提交时间') || trimmedLine.startsWith('>>>') || trimmedLine.includes('程序运行结束')) {
+          continue
+        }
+
+        const isBuildLog =
+          // 编译器工具链
+          trimmedLine.startsWith('riscv64-unknown-elf-gcc') ||
+          trimmedLine.startsWith('riscv64-unknown-elf-ld') ||
+          trimmedLine.startsWith('riscv64-unknown-elf-objdump') ||
+          trimmedLine.startsWith('riscv64-unknown-elf-objcopy') ||
+          trimmedLine.startsWith('riscv64-unknown-elf-ar') ||
+          // 构建基础设施命令（容器内 bash 拼接的命令回显）
+          trimmedLine.startsWith('mkdir') ||
+          trimmedLine.startsWith('rm') ||
+          trimmedLine.startsWith('touch') ||
+          trimmedLine.startsWith('cp') ||
+          trimmedLine.startsWith('printf') ||
+          trimmedLine.startsWith('sed') ||
+          trimmedLine.startsWith('cd ') ||
+          trimmedLine.startsWith('make ') ||
+          trimmedLine.startsWith('make[') ||
+          trimmedLine.startsWith('make:') ||
+          trimmedLine.startsWith('Entering directory') ||
+          trimmedLine.startsWith('Leaving directory') ||
+          trimmedLine.startsWith('/bin/sh:') ||
+          trimmedLine.startsWith('*** ') ||
+          trimmedLine.startsWith('if ') ||
+          trimmedLine.startsWith('then') ||
+          trimmedLine.startsWith('else') ||
+          trimmedLine.startsWith('fi') ||
+          trimmedLine === ':' ||
+          trimmedLine.includes('Build kernel done') ||
+          // QEMU 启动
+          trimmedLine.startsWith('qemu-system-riscv64') ||
+          // RustSBI 固件启动信息
+          trimmedLine.includes('[rustsbi]') ||
+          trimmedLine.includes('Platform Memory') ||
+          trimmedLine.includes('pmp01') ||
+          trimmedLine.includes('pmp02') ||
+          trimmedLine.includes('pmp03') ||
+          trimmedLine.includes('pmp04') ||
+          trimmedLine.includes('Hart') ||
+          trimmedLine.startsWith('RUSTSBI') ||
+          trimmedLine.match(/^====*$/) ||
+          trimmedLine.match(/^\s*\.______/) ||
+          trimmedLine.match(/^\s*\|.*\|$/) ||
+          (trimmedLine.includes('Implementation') && trimmedLine.includes('RustSBI')) ||
+          (trimmedLine.includes('Platform Name') && trimmedLine.includes('riscv')) ||
+          trimmedLine.includes('Platform SMP') ||
+          trimmedLine.includes('Boot HART') ||
+          trimmedLine.includes('Device Tree') ||
+          trimmedLine.includes('Firmware Address') ||
+          trimmedLine.includes('Supervisor Address') ||
+          trimmedLine.startsWith('#') ||
+          trimmedLine.startsWith('  ') ||
+          trimmedLine.match(/^\s*\d+\s*$/)
+        
+        if (inBuildPhase && isBuildLog) {
+          compileLogBuffer.push(trimmedLine)
+        } else if (inBuildPhase && !isBuildLog) {
+          inBuildPhase = false
+          runResultBuffer.push(trimmedLine)
+        } else {
+          runResultBuffer.push(trimmedLine)
+        }
+      }
+    }
+
+    runResultBuffer.push('')
+    runResultBuffer.push('=== 运行状态 ===')
+    runResultBuffer.push(`【运行状态】: ${judgeResult?.success ? '✓ 通过' : '✗ 失败'}`)
+    
     if (judgeResult?.message) {
-      output.push(`消息: ${judgeResult.message}`)
+      runResultBuffer.push(`消息: ${judgeResult.message}`)
     }
 
     if (judgeResult?.durationMillis != null) {
-      output.push(`耗时: ${(judgeResult.durationMillis / 1000).toFixed(2)} 秒`)
+      runResultBuffer.push(`耗时: ${(judgeResult.durationMillis / 1000).toFixed(2)} 秒`)
     }
 
     if (judgeResult?.exitCode != null) {
-      output.push(`退出码: ${judgeResult.exitCode}`)
+      runResultBuffer.push(`退出码: ${judgeResult.exitCode}`)
     }
 
     if (judgeResult?.timeout) {
-      output.push(`警告: 程序执行超时`)
+      runResultBuffer.push(`警告: 程序执行超时`)
     }
 
-    if (judgeResult?.stdout) {
-      output.push('')
-      output.push(`=== 标准输出 (stdout) ===`)
-      output.push(judgeResult.stdout)
+    runResultBuffer.push('')
+    runResultBuffer.push(`提交时间：${new Date().toLocaleString('zh-CN')}`)
+    runResultBuffer.push(`>>> 程序运行结束 (耗时: ${(judgeResult?.durationMillis ? judgeResult.durationMillis / 1000 : 0).toFixed(2)}s)`)
+
+    compileLog.value = [...compileLogBuffer]
+    runResult.value = [...runResultBuffer]
+
+    finalizeLogs()
+    answerEnabled.value = true
+
+    try {
+      await saveProgress({
+        userId,
+        labId: labId.value,
+        status: judgeResult?.success ? '已完成' : '进行中',
+        score: judgeResult?.success ? 100 : 0,
+      })
+    } catch (e) {
+      console.warn('保存进度失败:', e)
     }
-
-    if (judgeResult?.stderr) {
-      output.push('')
-      output.push(`=== 错误输出 (stderr) ===`)
-      output.push(judgeResult.stderr)
-    }
-
-    if (judgeResult?.combinedLog) {
-      output.push('')
-      output.push(`=== 完整日志 ===`)
-      output.push(judgeResult.combinedLog)
-    }
-
-    output.push('')
-    output.push(editorFinalLine)
-
-    outputLines.value = output
-
-    await saveProgress({
-      userId,
-      labId: labId.value,
-      status: judgeResult?.success ? '已完成' : '进行中',
-      score: judgeResult?.success ? 100 : 0,
-    })
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '运行提交失败'
-    outputLines.value = ['错误: ' + (error instanceof Error ? error.message : '运行提交失败'), editorFinalLine]
+    runResult.value = ['错误: ' + (error instanceof Error ? error.message : '运行提交失败')]
+    finalizeLogs()
   } finally {
+    ignoreRouteChanges.value = false
+    lockLogUpdate.value = false
     running.value = false
   }
 }
 
 async function handleSave() {
   const userId = getCurrentUserId()
-  if (!userId || saving.value || !currentTask.value) {
+  if (!userId || saving.value || !currentTask.value || running.value || lockLogUpdate.value) {
     return
   }
 
@@ -301,7 +456,7 @@ async function handleSave() {
       resultDetail: '已保存到提交记录',
     })
 
-    outputLines.value = ['代码已保存到后端提交记录。', editorFinalLine]
+    setRunResult(['代码已保存到后端提交记录。'])
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '保存失败'
   } finally {
@@ -310,13 +465,14 @@ async function handleSave() {
 }
 
 async function handleViewAnswer() {
-  if (!currentTask.value) {
+  if (!currentTask.value || running.value || lockLogUpdate.value || !answerEnabled.value) {
     return
   }
 
   try {
-    const answer = await getTaskAnswer(currentTask.value.taskId)
-    outputLines.value = [answer || '暂无答案内容', editorFinalLine]
+    const answer = await getAnswerFile(labId.value, taskFileName.value)
+    answerCode.value = answer || '暂无答案内容'
+    showAnswer.value = true
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '查看答案失败'
   }
@@ -327,10 +483,10 @@ function copyResult() {
     clearTimeout(copiedTimer)
   }
   
-  const resultText = outputLines.value.join('\n')
+  const allContent = [...compileLog.value, '', '=== 运行结果 ===', ...runResult.value].join('\n')
   
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(resultText).then(() => {
+    navigator.clipboard.writeText(allContent).then(() => {
       copied.value = true
       copiedTimer = setTimeout(() => {
         copied.value = false
@@ -344,7 +500,7 @@ function copyResult() {
     })
   } else {
     const textArea = document.createElement('textarea')
-    textArea.value = resultText
+    textArea.value = allContent
     textArea.style.position = 'fixed'
     textArea.style.left = '-9999px'
     document.body.appendChild(textArea)
@@ -377,13 +533,21 @@ onMounted(() => {
 })
 
 watch(labKey, () => {
-  if (!mounted) return
+  if (!mounted || running.value || ignoreRouteChanges.value || lockLogUpdate.value) return
   void loadTaskContext(routeTaskId.value)
 })
 
 watch(routeTaskId, (nextTaskId) => {
-  if (!mounted || !nextTaskId) return
+  if (!mounted || !nextTaskId || running.value || ignoreRouteChanges.value || lockLogUpdate.value) return
   void loadTaskContext(nextTaskId)
+})
+
+onBeforeRouteLeave((to, from, next) => {
+  if (running.value) {
+    next(false)
+  } else {
+    next()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -441,21 +605,73 @@ onBeforeUnmount(() => {
               <button
                 class="px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-600 text-xs font-medium hover:bg-blue-50 transition-colors shadow-sm flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed"
                 type="button"
-                :disabled="outputLines.length === 0"
+                :disabled="!compileLog.length && !runResult.length"
                 @click="copyResult"
               >
                 <Icon :icon="copied ? 'ph:check-bold' : 'ph:copy-bold'" />
                 {{ copied ? '已复制' : '复制结果' }}
               </button>
             </div>
-            <div class="flex-1 p-6 text-sm bg-slate-900/5 m-4 rounded-lg border border-blue-200/50">
-              <p v-for="(line, index) in outputLines" :key="`${line}-${index}`" class="text-slate-800 mb-1 whitespace-pre-wrap">
-                {{ line }}
-              </p>
+            
+            <div class="flex-1 p-4 overflow-auto">
+              <div class="mb-4">
+                <button
+                  class="w-full flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                  @click="showCompileLog = !showCompileLog"
+                >
+                  <div class="flex items-center gap-2">
+                    <Icon :icon="showCompileLog ? 'ph:chevron-down-bold' : 'ph:chevron-right-bold'" class="text-blue-500" />
+                    <span class="font-semibold text-blue-700">构建日志</span>
+                    <span class="text-xs text-blue-500">({{ compileLog.length }} 行)</span>
+                  </div>
+                </button>
+                <div v-show="showCompileLog" class="mt-2 p-4 bg-slate-900/5 rounded-lg border border-blue-200/50 max-h-64 overflow-auto">
+                  <p v-for="(line, index) in compileLog" :key="`compile-${line}-${index}`" class="text-slate-800 text-sm mb-1 whitespace-pre-wrap">
+                    {{ line }}
+                  </p>
+                </div>
+              </div>
+              
+              <div>
+                <button
+                  class="w-full flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                  style="cursor:default"
+                >
+                  <div class="flex items-center gap-2">
+                    <Icon icon="ph:chevron-down-bold" class="text-green-500" />
+                    <span class="font-semibold text-green-700">运行结果</span>
+                    <span class="text-xs text-green-500">({{ runResult.length }} 行)</span>
+                  </div>
+                </button>
+                <div class="mt-2 p-4 bg-slate-900/5 rounded-lg border border-green-200/50 max-h-80 overflow-auto">
+                  <p v-for="(line, index) in runResult" :key="`result-${line}-${index}`" class="text-slate-800 text-sm mb-1 whitespace-pre-wrap">
+                    {{ line }}
+                  </p>
+                  <p v-if="!runResult.length" class="text-slate-500 text-sm italic">运行结果将显示在这里...</p>
+                </div>
+              </div>
+
+              <div v-if="answerCode" class="mt-4 flex flex-col flex-1">
+                <button
+                  class="w-full flex items-center justify-between p-3 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition-colors"
+                  @click="showAnswer = !showAnswer"
+                >
+                  <div class="flex items-center gap-2">
+                    <Icon :icon="showAnswer ? 'ph:chevron-down-bold' : 'ph:chevron-right-bold'" class="text-yellow-600" />
+                    <span class="font-semibold text-yellow-700">参考答案</span>
+                    <span class="text-xs text-yellow-500">({{ answerCode.split('\n').length }} 行)</span>
+                  </div>
+                </button>
+                <div v-show="showAnswer" class="mt-2 p-4 bg-slate-900/5 rounded-lg border border-yellow-200/50 flex-1 overflow-auto">
+                  <pre class="text-slate-800 text-sm whitespace-pre-wrap font-mono">{{ answerCode }}</pre>
+                </div>
+              </div>
             </div>
+
             <button
-              class="absolute bottom-6 right-6 px-4 py-2 bg-white border-2 border-blue-300 rounded-md text-blue-600 text-sm font-medium hover:bg-blue-50 transition-colors shadow-sm flex items-center gap-1"
+              class="absolute bottom-6 right-6 px-4 py-2 bg-white border-2 border-blue-300 rounded-md text-blue-600 text-sm font-medium hover:bg-blue-50 transition-colors shadow-sm flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
               type="button"
+              :disabled="!answerEnabled"
               @click="handleViewAnswer"
             >
               <Icon icon="ph:lightbulb-bold" />

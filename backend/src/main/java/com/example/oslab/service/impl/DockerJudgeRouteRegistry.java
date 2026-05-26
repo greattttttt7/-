@@ -32,32 +32,32 @@ final class DockerJudgeRouteRegistry {
         // Lab1
         register(routes, 1, "task1.py", containerPath("lab1/task1.py"), workDir("lab1"));
         register(routes, 1, "task2.py", containerPath("lab1/task2.py"), workDir("lab1"));
-        register(routes, 1, "trap.c", containerPath("lab1/trap.c"), workDir("lab1"));
-        register(routes, 1, "timer.c", containerPath("lab1/timer.c"), workDir("lab1"));
-        register(routes, 1, "trap2.c", containerPath("lab1/trap.c"), workDir("lab1"));
+        register(routes, 1, "trap.c", containerPath("lab1/os/trap.c"), workDir("lab1"));
+        register(routes, 1, "timer.c", containerPath("lab1/os/timer.c"), workDir("lab1"));
+        register(routes, 1, "trap2.c", containerPath("lab1/os/trap.c"), workDir("lab1"));
 
         // Lab2
         register(routes, 2, "task1.py", containerPath("lab2/task1.py"), workDir("lab2"));
         register(routes, 2, "task2.py", containerPath("lab2/task2.py"), workDir("lab2"));
-        register(routes, 2, "kalloc.c", containerPath("lab2/kalloc.c"), workDir("lab2"));
-        register(routes, 2, "vm.c", containerPath("lab2/vm.c"), workDir("lab2"));
+        register(routes, 2, "kalloc.c", containerPath("lab2/os/kalloc.c"), workDir("lab2"));
+        register(routes, 2, "vm.c", containerPath("lab2/os/vm.c"), workDir("lab2"));
 
         // Lab3
         register(routes, 3, "task1.py", containerPath("lab3/task1.py"), workDir("lab3"));
         register(routes, 3, "task2.py", containerPath("lab3/task2.py"), workDir("lab3"));
-        register(routes, 3, "proc.c", containerPath("lab3/proc.c"), workDir("lab3"));
+        register(routes, 3, "proc.c", containerPath("lab3/os/proc.c"), workDir("lab3"));
 
         // Lab4
         register(routes, 4, "task1.py", containerPath("lab4/task1.py"), workDir("lab4"));
         register(routes, 4, "task2.py", containerPath("lab4/task2.py"), workDir("lab4"));
-        register(routes, 4, "fs.c", containerPath("lab4/fs.c"), workDir("lab4"));
-        register(routes, 4, "bio.c", containerPath("lab4/bio.c"), workDir("lab4"));
-        register(routes, 4, "pipe.c", containerPath("lab4/pipe.c"), workDir("lab4"));
+        register(routes, 4, "fs.c", containerPath("lab4/os/fs.c"), workDir("lab4"));
+        register(routes, 4, "bio.c", containerPath("lab4/os/bio.c"), workDir("lab4"));
+        register(routes, 4, "pipe.c", containerPath("lab4/os/pipe.c"), workDir("lab4"));
 
         // Lab5
         register(routes, 5, "task1.py", containerPath("lab5/task1.py"), workDir("lab5"));
         register(routes, 5, "task2.py", containerPath("lab5/task2.py"), workDir("lab5"));
-        register(routes, 5, "sync.c", containerPath("lab5/sync.c"), workDir("lab5"));
+        register(routes, 5, "sync.c", containerPath("lab5/os/sync.c"), workDir("lab5"));
 
         return Map.copyOf(routes);
     }

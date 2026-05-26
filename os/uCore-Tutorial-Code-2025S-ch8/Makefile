@@ -30,8 +30,11 @@ endif
 INIT_PROC ?= usershell
 
 $(K)/initproc.o: $K/initproc.S
+#$(K)/initproc.S: scripts/initproc.py .FORCE
+#	@$(PY) scripts/initproc.py $(INIT_PROC)
+
 $(K)/initproc.S: scripts/initproc.py .FORCE
-	@$(PY) scripts/initproc.py $(INIT_PROC)
+	@$(PY) $(PACK_SCRIPT) $(INIT_PROC)
 
 CFLAGS = -Wall -Werror -O -fno-omit-frame-pointer -ggdb
 CFLAGS += -MD
@@ -92,8 +95,8 @@ build/kernel: $(OBJS) os/kernel.ld
 	@echo 'Build kernel done'
 
 clean:
-	rm -rf $(BUILDDIR) os/initproc.S
-	rm $(F)/*.img
+	rm -rf build os/initproc.S
+	rm -f nfs/*.img
 
 # BOARD
 BOARD		?= qemu

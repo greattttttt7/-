@@ -12,9 +12,11 @@ public interface SubmissionService {
 
     String loadTaskAnswer(Integer taskId);
 
-    Task getTask(Integer taskId);
+    String loadAnswerFile(Integer labId, String fileName);
 
     Task getFirstTaskByLabId(Integer labId);
+
+    Task getTask(Integer taskId);
 
     Submission create(SubmissionRequest request);
 

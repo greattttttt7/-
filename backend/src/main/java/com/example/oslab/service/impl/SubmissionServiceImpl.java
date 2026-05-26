@@ -65,6 +65,18 @@ public class SubmissionServiceImpl implements SubmissionService {
     }
 
     @Override
+    public String loadAnswerFile(Integer labId, String fileName) {
+        if (labId == null || fileName == null || fileName.isBlank()) {
+            throw new BusinessException("参数错误：labId 和 fileName 不能为空");
+        }
+        String normalizedName = fileName.trim().replace('\\', '/');
+        normalizedName = normalizedName.substring(normalizedName.lastIndexOf('/') + 1);
+        Path answerPath = Paths.get("D:/Desktop/test/answer/answer",
+                "lab" + labId, normalizedName);
+        return readFileContent(answerPath.toString());
+    }
+
+    @Override
     public Task getTask(Integer taskId) {
         return ensureTaskExists(taskId);
     }
